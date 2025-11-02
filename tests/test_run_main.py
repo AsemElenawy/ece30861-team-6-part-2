@@ -128,7 +128,9 @@ class TestSampleClean(unittest.TestCase):
             tasks_file = os.path.join(tmpdir, "tasks.txt")
             open(tasks_file, "w").close()
             all_args = {"verbosity":0}
-            scores, times = mc.run_concurrently_from_file(tasks_file, all_args, tmpdir, os.path.join(tmpdir,"log.txt"))
+            scores, times = mc.run_concurrently_from_file(
+                tasks_file, all_args, {}, os.path.join(tmpdir, "log.txt")
+            )
             self.assertEqual(scores['net_score'], 0.0)
 
     def test_run_concurrently_invalid_line(self):
@@ -137,7 +139,9 @@ class TestSampleClean(unittest.TestCase):
             with open(tasks_file, "w") as f:
                 f.write("invalid_line_without_proper_syntax\n")
             all_args = {"verbosity":0}
-            scores, times = mc.run_concurrently_from_file(tasks_file, all_args, tmpdir, os.path.join(tmpdir,"log.txt"))
+            scores, times = mc.run_concurrently_from_file(
+                tasks_file, all_args, {}, os.path.join(tmpdir, "log.txt")
+            )
             self.assertEqual(scores['net_score'], 0.0)
 
     # ---------------- build_model_output ----------------
