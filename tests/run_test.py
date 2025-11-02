@@ -1,20 +1,12 @@
-import argparse
-import sys
-import subprocess
+import multiprocessing
+import os
 import src.url_class as url_class
 import metric_caller
-from collections import defaultdict
-import metric_caller
-import time
 from src.json_output import build_model_output
-import os
-from get_model_metrics import get_model_size
 
 if __name__ == '__main__':
     verbosity = 1
     logfile = "log.txt"
-    verbosity = 1
-
     github_token = ""
 
     os.environ['API_KEY'] = ""
@@ -22,24 +14,41 @@ if __name__ == '__main__':
 
     #Running URL FILE
     project_groups: list[url_class.ProjectGroup] = url_class.parse_project_file("input.txt")
-    for i in project_groups:
-       
+
+    # Preload available functions from the metrics directory used by your project
+    log_q = multiprocessing.Queue()
+    available_functions = metric_caller.load_available_functions("metrics", log_q, verbosity)
+
+    for group in project_groups:
+       # Guard against None optional fields to satisfy Pylance
+        if group.model is None:
+            continue
+
+        model_ns = group.model.namespace
+        model_repo = group.model.repo
+        model_rev = group.model.rev
+
+        code_link = group.code.link if group.code else ""
+        dataset_repo = group.dataset.repo if group.dataset else ""
+
         #size = get_model_size(i.model.namespace, i.model.repo, i.model.rev)
 
         input_dict = {
-            "repo_owner": i.model.namespace,
-            "repo_name": i.model.repo,
-            "verbosity":verbosity,
+            "repo_owner": model_ns,
+            "repo_name": model_repo,
+            "verbosity": verbosity,
             "log_queue": logfile,
             "model_size_bytes": 1,
-            "github_str": f"{i.code.link}",  # New parameter for GitHub repo
-            "dataset_name": f"{i.dataset.repo}",  # New parameter for dataset name
-            "github_token": github_token
+            "github_str": code_link,
+            "dataset_name": dataset_repo,
+            "github_token": github_token,
         }
 
-        x = metric_caller.load_available_functions("metrics")
-        scores,latency = metric_caller.run_concurrently_from_file("./tasks.txt",input_dict,x,logfile)
+        scores, latency = metric_caller.run_concurrently_from_file(
+            "./tasks.txt",  # tasks_filename
+            input_dict,     # all_args_dict
+            available_functions,  # available_functions
+            logfile         # log_file
+        )
 
-        build_model_output(f"{i.model.namespace}/{i.model.repo}","model",scores,latency)
-
-
+        build_model_output(f"{model_ns}/{model_repo}", "model", scores, latency)
