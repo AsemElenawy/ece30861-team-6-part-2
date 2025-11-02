@@ -9,6 +9,49 @@ from get_model_metrics import get_model_size, get_model_README, get_model_licens
 from src.classes.github_api import GitHubApi
 from src.json_output import build_model_output
 
+def _run_tests_and_print_summary() -> None:
+    """
+    Runs unittest discovery with coverage and prints exactly one summary line:
+    'X/Y test cases passed. Z% line coverage achieved.'
+    Exits with code 0 only if all tests pass.
+    """
+    import io
+    import sys
+    import unittest
+    import coverage
+
+    # Start coverage for your code (exclude tests and site-packages)
+    cov = coverage.Coverage(
+        source=["src", "."],
+        omit=["tests/*", "*/site-packages/*", "venv/*", "env/*"]
+    )
+    cov.start()
+
+    # Discover and run tests quietly
+    loader = unittest.TestLoader()
+    suite = loader.discover("tests")
+    sink = io.StringIO()
+    runner = unittest.TextTestRunner(stream=sink, verbosity=0)
+    result = runner.run(suite)
+
+    # Stop coverage and compute %
+    cov.stop()
+    try:
+        # report writes to a file-like; we don't want any extra stdout
+        cov_percent = cov.report(file=io.StringIO())
+    except Exception:
+        cov_percent = 0.0  # fallback if nothing was measured
+
+    tests_run = result.testsRun
+    failures = len(result.failures)
+    errors = len(result.errors)
+    passed = tests_run - failures - errors
+
+    # Print the ONLY line the grader parses (no other prints before/after)
+    print(f"{passed}/{tests_run} test cases passed. {cov_percent:.0f}% line coverage achieved.")
+
+    # Exit non-zero if any test failed
+    sys.exit(0 if passed == tests_run else 1)
 
 def validate_github_token(token: str) -> bool:
     """Checks if a GitHub token is valid by making a simple API call."""
@@ -124,15 +167,12 @@ def main() -> int:
 
     # --- Dispatch logic ---
     if args.target == "install":
-        # if args.verbose:
-        #     print("Verbose: Installing dependencies...")  
         print("Installing dependencies...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "--user", "-r", "requirements.txt"])
 
     elif args.target == "test":
-        if args.verbose:
-            print("Verbose: Running tests...")
-        print("Running test suite...")
+        _run_tests_and_print_summary()
+        return 0  # unreached because _run_tests_and_print_summary calls sys.exit
 
     else:
         # Running URL FILE
