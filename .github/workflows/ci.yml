@@ -25,10 +25,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Run tests
+    - name: Create test data file
+      run: |
+        echo "https://huggingface.co/example/model" > tests/fake_target.txt
+        
+        - name: Run tests
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        GEN_AI_STUDIO_API_KEY: ${{ secrets.GEN_AI_STUDIO_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # This one is automatic
+        # Remove GEN_AI_STUDIO_API_KEY if not needed
         LOG_LEVEL: 1
       run: |
         python -m unittest discover tests -v
