@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ACME Model Registry Frontend</title>
+  <meta charset="UTF-8" />
+  <style>
+    body { font-family: Arial; padding: 2em; }
+    input, button { margin: 0.5em; }
+    pre { background: #f4f4f4; padding: 1em; }
+  </style>
+</head>
+<body>
+  <h1>ACME Model Registry Frontend (MVP)</h1>
+  <p>Backend: <span id="backend-url"></span></p>
+
+  <h2>Search Artifact by ID</h2>
+  <input type="text" id="artifactId" placeholder="Enter artifact ID">
+  <button onclick="lookup()">Search</button>
+
+  <h2>Upload New Artifact</h2>
+  <input type="file" id="artifactFile">
+  <button onclick="upload()">Upload</button>
+
+  <h3>Response</h3>
+  <pre id="output"></pre>
+
+  <script>
+    const backend = "http://ec2-18-191-196-54.us-east-2.compute.amazonaws.com";
+    document.getElementById("backend-url").innerText = backend;
+
+    async function lookup() {
+      const id = document.getElementById("artifactId").value;
+      const resp = await fetch(`${backend}/artifacts/${id}`);
+      document.getElementById("output").innerText = await resp.text();
+    }
+
+    async function upload() {
+      const fileInput = document.getElementById("artifactFile");
+      if (!fileInput.files.length) return alert("Choose a file first!");
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+      formData.append("name", fileInput.files[0].name);
+      const resp = await fetch(`${backend}/artifacts/upload`, { method: "POST", body: formData });
+      document.getElementById("output").innerText = await resp.text();
+    }
+  </script>
+</body>
+</html>
