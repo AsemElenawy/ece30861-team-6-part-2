@@ -21,9 +21,22 @@ def _run_tests_and_print_summary() -> None:
 
     # Set up the tracer (ignore stdlib and site-packages)
     tracer = trace.Trace(
-        ignoredirs=[sys.prefix, sys.exec_prefix],
-        trace=False,
         count=True,
+        trace=False,
+        # Use a tuple/list (Sequence[str]) — NOT a set.
+        ignoremods=(
+            "encodings",
+            "importlib",
+            "zipimport",
+            "site",
+            "posixpath",
+            "ntpath",
+        ),
+        ignoredirs=(
+            sys.prefix,
+            getattr(sys, "base_prefix", sys.prefix),
+            os.path.dirname(os.__file__),
+        ),
     )
 
     # Discover tests

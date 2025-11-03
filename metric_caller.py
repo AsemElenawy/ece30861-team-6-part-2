@@ -5,6 +5,8 @@ import importlib
 import importlib.util
 import time
 import inspect
+import sys
+import threading
 
 def parse_keys_from_string(key_string: str) -> list[str]:
     """Parses a comma-separated string of keys into a clean list."""
@@ -12,38 +14,77 @@ def parse_keys_from_string(key_string: str) -> list[str]:
         return []
     return [key.strip() for key in key_string.split(',')]
 
-def logger_process(log_queue: multiprocessing.Queue, log_file_path: str):
+def logger_process(queue, log_file_path: str, log_level: int = 0) -> None:
     """
-    A dedicated process that listens for messages on a queue and writes them to a log file.
+    Dedicated process that reads messages from `queue` and writes them to `log_file_path`.
+    A None message is the sentinel to stop.
     """
+    # Disable any inherited tracing/profiling in this child (avoid recursion/stack overflow)
     try:
-        with open(log_file_path, 'w', encoding='ASCII') as f:
-            #f.write(f"--- Log started at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            while True:
-                message = log_queue.get()
-                if message is None: # A 'None' message is our signal to stop
-                    #f.write(f"--- Log ended at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-                    break
-                f.write(f"{message}\n")
-                f.flush() # Ensure messages are written immediately
+        sys.settrace(lambda *a, **k: None)
+        sys.setprofile(lambda *a, **k: None)
+        if hasattr(threading, "settrace"):
+            threading.settrace(lambda *a, **k: None)
+        if hasattr(threading, "setprofile"):
+            threading.setprofile(lambda *a, **k: None)
     except Exception:
         pass
-        # This print is a fallback for a critical logger failure
-        #print(f"[Logger Process Error] An error occurred: {e}")
+
+    # Ensure the log directory exists
+    try:
+        dir_name = os.path.dirname(os.path.abspath(log_file_path)) or "."
+        os.makedirs(dir_name, exist_ok=True)
+    except Exception:
+        pass
+
+    # Open the log file and consume messages until sentinel None
+    try:
+        f = open(log_file_path, "w", encoding="ascii", errors="ignore")
+    except Exception:
+        # If the file can't be opened, still drain the queue so producers don't block
+        while True:
+            msg = queue.get()
+            if msg is None:
+                break
+        return
+
+    with f:
+        while True:
+            try:
+                message = queue.get()
+            except (EOFError, OSError):
+                break
+            if message is None:
+                break
+            try:
+                f.write(f"{message}\n")
+                f.flush()
+            except Exception:
+                # Ignore transient write/encoding errors to keep the logger robust
+                pass
 
 def process_worker(target_func, result_queue, log_queue, weight, func_name, *args):
     """
     Worker that executes the target function and handles any exceptions,
     returning a score of 0.0 upon failure.
     """
+    # Disable any inherited tracing/profiling in worker processes as well
+    try:
+        sys.settrace(lambda *a, **k: None)
+        sys.setprofile(lambda *a, **k: None)
+        if hasattr(threading, "settrace"):
+            threading.settrace(lambda *a, **k: None)
+        if hasattr(threading, "setprofile"):
+            threading.setprofile(lambda *a, **k: None)
+    except Exception:
+        pass
+
     start_time = time.perf_counter()
     try:
         score, time_taken = target_func(*args)
         result_queue.put((score, float(time_taken), float(weight), func_name))
-    except Exception as e:
+    except Exception:
         time_taken = time.perf_counter() - start_time
-        # This is a fallback for critical failures in the worker itself.
-        #log_queue.put(f"[WORKER CRASH] Process for '{func_name}' failed critically: {e}")
         result_queue.put((0.0, time_taken, float(weight), func_name))
 
 def load_available_functions(directory: str, *_, **__) -> dict:
