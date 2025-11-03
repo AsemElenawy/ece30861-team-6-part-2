@@ -128,7 +128,7 @@ def run_concurrently_from_file(tasks_filename: str, all_args_dict: dict, availab
     """
     Parses a file, runs functions concurrently, and directs all status updates to the log file.
     """
-    script_verbosity = all_args_dict["verbosity"]
+    script_verbosity = int(all_args_dict.get("verbosity", 0))
     manager = multiprocessing.Manager()
     log_queue = manager.Queue()
     
@@ -195,7 +195,7 @@ def run_concurrently_from_file(tasks_filename: str, all_args_dict: dict, availab
             log_queue.put("[INFO] No valid tasks to run.")
         log_queue.put(None)
         logger.join()
-        return {'net_score': 0.0}, {}
+        return {'net_score': 0.0}, {'net_score_latency': 0}
     
     if script_verbosity > 0:
         log_queue.put("[INFO] --- Starting all processes ---")
@@ -211,11 +211,13 @@ def run_concurrently_from_file(tasks_filename: str, all_args_dict: dict, availab
     for _ in range(len(processes)):
         score, time_taken, weight, func_name = results_queue.get()
         scores_dictionary[func_name] = score
-        times_dictionary[func_name] = round(time_taken * 1000)
-        if func_name != "calculate_size_score":
-            weighted_score_sum += score * weight
+        times_dictionary[func_name] = round(time_taken * 1000)   
+        if isinstance(score, dict):
+            # e.g., size_score {device: score}
+            avg = (sum(score.values()) / len(score)) if score else 0.0
+            weighted_score_sum += avg * weight
         else:
-            weighted_score_sum += (sum(score.values()) / len(score) if score else 0.0) * weight
+            weighted_score_sum += float(score) * weight
     
     if total_weight > 0:
         net_score = weighted_score_sum / total_weight
