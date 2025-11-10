@@ -1,6 +1,6 @@
 # MVP backend
-from fastapi import FastAPI, UploadFile, File, Header
-import uuid, os, shutil
+from fastapi import FastAPI, UploadFile, File, Header, Query, HTTPException
+import uuid, os, re
 
 app = FastAPI(title="MVP Registry")
 
@@ -31,6 +31,33 @@ async def upload_model(file: UploadFile = File(...)):
     }
     ARTIFACTS[artifact_id] = record
     return record
+
+@app.get("/artifacts")
+def list_artifacts(
+    regex: str | None = Query(None, description="Optional regex over filename"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """
+    Enumerate artifacts:
+    - If regex is given, filter by regex over filename (later also model card text).
+    - Support offset + limit so it scales to millions of models.
+    """
+    items = list(ARTIFACTS.values())
+
+    if regex:
+        pattern = re.compile(regex, re.IGNORECASE)
+        items = [a for a in items if pattern.search(a["filename"])]
+
+    total = len(items)
+    page = items[offset: offset + limit]
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": page,
+    }
 
 @app.get("/artifacts/{artifact_id}")
 def get_artifact(artifact_id: str):
