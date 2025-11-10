@@ -6,6 +6,7 @@ import tempfile
 import subprocess
 from typing import Tuple, List
 import pandas as pd
+import requests
 
 def _remove_readonly(func, path, _):
     """Helper to clear readonly flag on Windows when deleting .git files."""
@@ -28,8 +29,8 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
     """
     start_time = time.perf_counter()
     pid = os.getpid()
-    score = 0.0  # default for failures
-    split: str = "train"
+    score = 0.0  # Default
+    split: str = "train[:500]" # Slice split to improve latency
 
     dataset_name = (dataset_name or "").strip()
     if not dataset_name:
@@ -40,49 +41,37 @@ def dataset_quality(dataset_name: str, verbosity: int, log_queue) -> Tuple[float
     try:
         df: pd.DataFrame = pd.DataFrame()
 
-        # Case 1: GitHub repo
-        if dataset_name.startswith("http") and "github.com" in dataset_name:
-            tmp_dir = tempfile.mkdtemp()
-            if verbosity >= 1 and log_queue:
-                log_queue.put(f"[{pid}] Cloning GitHub repo {dataset_name} into {tmp_dir}...")
+        # Case 1: URLs (must not use git CLI, handle GitHub via HTTP API)
+        if dataset_name.startswith("http"):
+            if "github.com" in dataset_name:
+                try:
+                    parts = dataset_name.rstrip("/").split("/")
+                    owner, repo = parts[3], parts[4]
+                    for ref in ("main", "master"):
+                        r = requests.get(
+                            f"https://api.github.com/repos/{owner}/{repo}/contents?ref={ref}",
+                            timeout=5,
+                        )
+                        if r.status_code == 200 and isinstance(r.json(), list):
+                            for it in r.json():
+                                name = (it.get("name") or "").lower()
+                                if it.get("type") == "file" and name.endswith(".csv"):
+                                    df = pd.read_csv(it.get("download_url"), nrows=500)
+                                    break
+                            break
+                except Exception as e:
+                    if verbosity >= 1 and log_queue:
+                        log_queue.put(f"[{pid}] dataset_quality: GitHub inspection failed: {e}")
 
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", dataset_name, tmp_dir],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"git clone failed: {result.stderr.strip()}")
-            
-            # Try to detect a dataset file inside the repo
-            candidates: List[str] = []
-            for root, _, files in os.walk(tmp_dir):
-                for f in files:
-                    if f.endswith((".csv", ".json", ".parquet")):
-                        candidates.append(os.path.join(root, f))
-            if not candidates:
-                raise ValueError(f"No supported dataset file found in GitHub repo: {dataset_name}")
-
-            dataset_file = candidates[0]
-            if verbosity >= 1 and log_queue:
-                log_queue.put(f"[{pid}] Found dataset file {dataset_file}")
-
-            if dataset_file.endswith(".csv"):
-                df = pd.read_csv(dataset_file)
-            elif dataset_file.endswith(".json"):
-                df = pd.read_json(dataset_file, lines=True)
-            elif dataset_file.endswith(".parquet"):
-                df = pd.read_parquet(dataset_file)
-
-            # Safe cleanup
-            try:
-                shutil.rmtree(tmp_dir, onerror=_remove_readonly)
-            except Exception as e:
+            if df.empty:
                 if verbosity >= 1 and log_queue:
-                    log_queue.put(f"[{pid}] [WARNING] Failed to cleanup {tmp_dir}: {e}")
-
+                    log_queue.put(
+                        f"[{pid}] dataset_quality: URL detected ('{dataset_name}'). "
+                        "No small CSV found via API; returning 0.0."
+                    )
+                time_taken_second = time.perf_counter() - start_time
+                return 0.0, time_taken_second
+            
         # Case 2: Hugging Face dataset
         else:
             if verbosity >= 1 and log_queue:
