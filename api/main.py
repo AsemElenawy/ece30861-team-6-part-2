@@ -83,3 +83,7 @@ def system_reset(x_authorization: str | None = Header(None, alias="X-Authorizati
     os.makedirs(STORAGE_DIR, exist_ok=True)
 
     return {"status": "reset"}
+
+@app.get("/debug/artifacts")
+def debug_artifacts():
+    return {"count": len(ARTIFACTS), "artifacts": list(ARTIFACTS.values())}
