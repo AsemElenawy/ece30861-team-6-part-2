@@ -40,7 +40,7 @@
       const formData = new FormData();
       formData.append("file", fileInput.files[0]);
       formData.append("name", fileInput.files[0].name);
-      const resp = await fetch(`${backend}/artifacts/upload`, { method: "POST", body: formData });
+      const resp = await fetch(`${backend}/upload`, { method: "POST", body: formData });
       document.getElementById("output").innerText = await resp.text();
     }
   </script>
