@@ -1,14 +1,32 @@
 # MVP backend
-from fastapi import FastAPI, UploadFile, File, Header
+from fastapi import FastAPI, UploadFile, File, Header, HTTPException
+from pydantic import BaseModel
 import uuid, os, shutil
 
-app = FastAPI(title="MVP Registry")
+app = FastAPI(title="Model Registry")
 
 STORAGE_DIR = "/storage"        # use container-level folder (not relative)
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
-# In-memory "database"
-ARTIFACTS = {}
+
+# In-memory registry: id -> artifact envelope
+ARTIFACTS: dict[str, dict] = {}
+
+
+class ArtifactData(BaseModel):
+    url: str
+    download_url: str | None = None  # set in responses
+
+
+class ArtifactMetadata(BaseModel):
+    name: str
+    id: str
+    type: str  # "model" | "dataset" | "code"
+
+
+class Artifact(BaseModel):
+    metadata: ArtifactMetadata
+    data: ArtifactData
 
 # Make sure a storage folder exists
 
@@ -16,35 +34,83 @@ ARTIFACTS = {}
 def health():
     return {"status": "ok"}
 
-@app.post("/upload")
-async def upload_model(file: UploadFile = File(...)):
-    # Accept a .zip file, save to disk, store basic info in memory -> return a tiny JSON record.
+@app.post("/artifact/{artifact_type}", response_model=Artifact, status_code=201)
+async def create_artifact(
+    artifact_type: str,
+    body: ArtifactData,
+    x_authorization: str = Header(..., alias="X-Authorization"),
+):
+    """
+    Register a new artifact (model/dataset/code) using a source URL.
+
+    This replaces your old /upload endpoint for the autograder.
+    It does:
+    - generate an id
+    - derive a name from the URL
+    - (optionally) save a placeholder file
+    - store metadata + data in ARTIFACTS
+    - return an Artifact object matching the OpenAPI spec
+    """
+    # 1) Validate artifact_type
+    if artifact_type not in {"model", "dataset", "code"}:
+        raise HTTPException(status_code=400, detail="Invalid artifact_type")
+
+    # 2) (MVP auth) – accept any non-empty token, or check a fixed token if you want
+    if not x_authorization:
+        raise HTTPException(status_code=403, detail="Missing X-Authorization")
+
+    # 3) Generate id and name
     artifact_id = str(uuid.uuid4())
+    # derive a human-friendly name from the URL
+    url = body.url.rstrip("/")
+    name = url.split("/")[-1] or "artifact"
 
-    # Save zip bytes to storage/<id>.zip
-    data = await file.read()
-
-    file_path = os.path.join(STORAGE_DIR, f"{artifact_id}.zip")
-
+    # 4) (Optional) Save placeholder content to storage
+    # For now, just create an empty file to represent the bundle
+    file_path = os.path.join(STORAGE_DIR, f"{artifact_id}.bin")
     with open(file_path, "wb") as f:
-        f.write(data)
+        f.write(b"")  # later you can actually download the bundle
 
-    record = {
-        "id": artifact_id,
-        "filename": file.filename,
-        "net_score": None # to be implemented
-    }
+    # 5) Construct download_url
+    # TODO: replace host:port with your real host + port
+    download_url = f"http://ec2-18-191-196-54.us-east-2.compute.amazonaws.com:8000/download/{artifact_id}"
 
-    ARTIFACTS[artifact_id] = record
-    return record
+    artifact = Artifact(
+        metadata=ArtifactMetadata(
+            name=name,
+            id=artifact_id,
+            type=artifact_type,
+        ),
+        data=ArtifactData(
+            url=body.url,
+            download_url=download_url,
+        ),
+    )
 
-@app.get("/artifacts/{artifact_id}")
-def get_artifact(artifact_id: str):
-    # Return the JSON record if found; otherwise report not found.
-    rec = ARTIFACTS.get(artifact_id)
-    if rec is None:
-        return {"error": "not found"}
-    return rec
+    # 6) Save in registry
+    ARTIFACTS[artifact_id] = artifact.dict()
+
+    return artifact
+
+@app.get("/artifacts/{artifact_type}/{id}", response_model=Artifact)
+async def get_artifact(
+    artifact_type: str,
+    id: str,
+    x_authorization: str = Header(..., alias="X-Authorization"),
+):
+    if not x_authorization:
+        raise HTTPException(status_code=403, detail="Missing X-Authorization")
+
+    artifact = ARTIFACTS.get(id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    # (Optional) enforce that stored type matches requested artifact_type
+    if artifact["metadata"]["type"] != artifact_type:
+        raise HTTPException(status_code=400, detail="Artifact type mismatch")
+
+    return artifact
+
 
 
 @app.get("/tracks")
