@@ -1,6 +1,6 @@
 # MVP backend
 from fastapi import FastAPI, UploadFile, File, Header
-import uuid, os
+import uuid, os, shutil
 
 app = FastAPI(title="MVP Registry")
 
@@ -55,6 +55,15 @@ def reset_registry(x_authorization: str | None = Header(None, alias="X-Authoriza
     # You can later check x_authorization value if you want,
     # but for MVP we just require that it exists.
 
-    ARTIFACTS.clear()  # wipe in-memory registry
+    # 1) Clear in-memory artifacts
+    ARTIFACTS.clear()
+
+    # 2) Delete the storage directory if it exists
+    if os.path.exists("storage"):
+        shutil.rmtree("storage")
+
+    # 3) Recreate an empty storage directory
+    os.makedirs("storage", exist_ok=True)
+
 
     return {"status": "reset"}
