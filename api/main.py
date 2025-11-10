@@ -101,3 +101,15 @@ def reset_registry(x_authorization: str | None = Header(None, alias="X-Authoriza
 
     # 4) Return success
     return {"status": "reset"}
+
+@app.post("/system/reset")
+def system_reset(x_authorization: str | None = Header(None, alias="X-Authorization")):
+    """Alias for system reset used by tests; mirrors /reset behavior."""
+    ARTIFACTS.clear()
+
+    if os.path.exists(STORAGE_DIR):
+        shutil.rmtree(STORAGE_DIR)
+
+    os.makedirs(STORAGE_DIR, exist_ok=True)
+
+    return {"status": "reset"}
