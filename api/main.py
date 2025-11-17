@@ -246,6 +246,8 @@ async def get_artifact(
         "metadata": stored["metadata"],
         "data": stored["data"],
     } '''
+AUTH_TOKEN = "bearer default-autograder-token"  # must match what /authenticate returns
+
 @app.get(
     "/artifacts/{artifact_type}/{id}",
     response_model=Artifact,
@@ -259,21 +261,39 @@ async def get_artifact(
     """
     Get full Artifact by type + id.
 
-    Header is accepted but not required so the autograder
-    doesn't get 422s if it omits X-Authorization.
+    Behavior per spec:
+    - 400 if artifact_type is invalid (not model/dataset/code)
+    - 403 if auth token is missing or wrong
+    - 404 if artifact does not exist
+    - 200 with Artifact if everything is valid
     """
+
+    # 1) Validate artifact_type – 400 if malformed/invalid
+    if artifact_type not in {"model", "dataset", "code"}:
+        raise HTTPException(status_code=400, detail="Invalid artifact_type")
+
+    # 2) Enforce auth – 403 if missing/invalid
+    if x_authorization != AUTH_TOKEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken.",
+        )
+
+    # 3) Look up artifact – 404 if id not found
     stored = ARTIFACTS.get(id)
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
+    # 4) Type mismatch – from caller’s POV this id+type combo doesn’t exist → 404
     if stored["metadata"]["type"] != artifact_type:
-        # Treat wrong type+id as "not found"
         raise HTTPException(status_code=404, detail="Artifact not found")
 
+    # 5) Success – return full artifact
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
     }
+
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",
@@ -480,22 +500,6 @@ DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifa
 
 @app.put("/authenticate", response_model=str, tags=["non-baseline"])
 async def authenticate(body: Dict[str, Any] = Body(...)):
-    """
-    Create an access token.
-
-    Expected body (from the OpenAPI spec):
-
-    {
-      "user": {
-        "name": "ece30861defaultadminuser",
-        "is_admin": true
-      },
-      "secret": {
-        "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
-      }
-    }
-    """
-
     # 1) Basic shape validation -> 400 if malformed
     if "user" not in body or "secret" not in body:
         raise HTTPException(status_code=400, detail="Missing user or secret")
