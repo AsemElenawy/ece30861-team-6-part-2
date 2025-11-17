@@ -1,65 +1,154 @@
 
-from huggingface_hub import snapshot_download, hf_hub_download
-import os
-import tempfile
-from pathlib import Path
+"""
+download_model.py
 
-class HuggingFaceDownloader:
-    def __init__(self, cache_dir=None):
-        self.cache_dir = cache_dir or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
-        os.makedirs(self.cache_dir, exist_ok=True)
-    
-    def download_model(self, model_id, revision="main"):
-        """
-        Download a complete HuggingFace model
-        Returns: Path to downloaded model directory
-        """
-        try:
-            model_path = snapshot_download(
-                repo_id=model_id,
-                revision=revision,
-                cache_dir=self.cache_dir,
-                local_dir=os.path.join(self.cache_dir, "models", model_id.replace("/", "_")),
-                local_dir_use_symlinks=False
-            )
-            return model_path
-        except Exception as e:
-            print(f"Error downloading model {model_id}: {e}")
-            return None
-    
-    def download_specific_file(self, model_id, filename, revision="main"):
-        """
-        Download a specific file from a HuggingFace model
-        """
-        try:
-            file_path = hf_hub_download(
-                repo_id=model_id,
-                filename=filename,
-                revision=revision,
-                cache_dir=self.cache_dir
-            )
-            return file_path
-        except Exception as e:
-            print(f"Error downloading file {filename} from {model_id}: {e}")
-            return None
-    
-    def get_model_info(self, model_id):
-        """
-        Get information about a model without downloading it
-        """
-        from huggingface_hub import model_info
-        try:
-            info = model_info(model_id)
-            return {
-                "id": info.id,
-                "downloads": info.downloads,
-                "likes": info.likes,
-                "tags": info.tags,
-                "pipeline_tag": info.pipeline_tag,
-                "library_name": info.library_name,
-                "model_size": getattr(info, 'model_size', None),
-                "safetensors": getattr(info, 'safetensors', None)
-            }
-        except Exception as e:
-            print(f"Error getting model info for {model_id}: {e}")
-            return None
+Provides a FastAPI APIRouter that implements model download functionality
+for the registry. Supports downloading full packages or specific parts.
+
+Behavior:
+- Verifies an `X-Authorization` header (placeholder check).
+- Looks up model/artifact metadata in the in-memory `api.main.ARTIFACTS`.
+- Supports files stored locally under `storage/<id>.zip` or in S3 when
+  `s3_bucket`/`s3_key` are present in the artifact record.
+- Streams bytes to the client using StreamingResponse so large files
+  don't need to be loaded into memory.
+
+This module purposely keeps S3 usage optional: if `boto3` is not
+installed and the artifact references S3, an informative error is
+returned.
+"""
+
+import os
+import typing
+from fastapi import APIRouter, Header, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+from typing import Optional, Generator
+import zipfile
+
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+    _HAS_BOTO3 = True
+except Exception:
+    boto3 = None
+    _HAS_BOTO3 = False
+
+CHUNK_SIZE = 1024 * 64
+
+router = APIRouter()
+
+
+def _verify_access(x_authorization: Optional[str]):
+    # Placeholder access check: require header present and non-empty.
+    if not x_authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing X-Authorization header")
+
+
+def _get_artifact_record(artifact_id: str) -> dict:
+    try:
+        # ARTIFACTS is defined in `api.main` (MVP). Import lazily so this
+        # module can be used in other contexts without importing the app.
+        from api.main import ARTIFACTS
+    except Exception:
+        ARTIFACTS = {}
+
+    rec = ARTIFACTS.get(artifact_id)
+    if rec is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Artifact not found")
+    return rec
+
+
+def _stream_local_file(path: str) -> Generator[bytes, None, None]:
+    if not os.path.exists(path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
+    def _iter():
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
+
+    return _iter()
+
+
+def _stream_zip_member(zip_path: str, member_name: str) -> Generator[bytes, None, None]:
+    if not os.path.exists(zip_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive not found")
+
+    z = zipfile.ZipFile(zip_path, "r")
+    try:
+        with z.open(member_name, "r") as member:
+            while True:
+                chunk = member.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                yield chunk
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Member '{member_name}' not found in archive")
+    finally:
+        z.close()
+
+
+def _stream_s3_object(bucket: str, key: str) -> Generator[bytes, None, None]:
+    if not _HAS_BOTO3:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="boto3 not installed on server; cannot fetch from S3")
+
+    s3 = boto3.client("s3")
+    try:
+        resp = s3.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"]
+        while True:
+            chunk = body.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            yield chunk
+    except (BotoCoreError, ClientError) as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Error fetching from S3: {e}")
+
+
+@router.get("/download/{artifact_id}")
+def download_artifact(
+    artifact_id: str,
+    part: Optional[str] = Query(None, description="Optional path inside package to download"),
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+):
+    """Download a full package (when `part` is omitted) or a specific
+    part/file inside the package. The artifact metadata is expected to
+    include either local storage info (saved as `storage/<id>.zip`) or
+    `s3_bucket` and `s3_key` keys for S3-based storage.
+    """
+    _verify_access(x_authorization)
+    rec = _get_artifact_record(artifact_id)
+
+    # If artifact has explicit s3 info, prefer that
+    if rec.get("s3_bucket") and rec.get("s3_key"):
+        bucket = rec["s3_bucket"]
+        base_key = rec["s3_key"].rstrip("/")
+
+        if part:
+            key = f"{base_key}/{part.lstrip('/')}"
+            generator = _stream_s3_object(bucket, key)
+            return StreamingResponse(generator, media_type="application/octet-stream")
+        else:
+            # stream the package object
+            generator = _stream_s3_object(bucket, base_key)
+            return StreamingResponse(generator, media_type="application/octet-stream")
+
+    # Fallback: expect a local zip stored as storage/<id>.zip
+    local_zip = os.path.join("storage", f"{artifact_id}.zip")
+
+    if part:
+        # stream a specific member from the archive
+        gen = _stream_zip_member(local_zip, part)
+        # Attempt to set a sensible content type based on filename
+        return StreamingResponse(gen, media_type="application/octet-stream")
+    else:
+        # stream the archive file itself
+        gen = _stream_local_file(local_zip)
+        return StreamingResponse(gen, media_type="application/zip")
+
+
+def get_router() -> APIRouter:
+    """Return the FastAPI router so callers can include it into their app."""
+    return router

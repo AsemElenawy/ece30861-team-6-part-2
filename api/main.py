@@ -1,8 +1,13 @@
 # MVP backend
-from fastapi import FastAPI, UploadFile, File, Header
-import uuid, os, shutil
+from fastapi import FastAPI, UploadFile, File, Header, Query
+import uuid, os, shutil, re
+from src.download_model import get_router as get_download_router
 
 app = FastAPI(title="MVP Registry")
+
+# Include the download router
+download_router = get_download_router()
+app.include_router(download_router)
 
 # In-memory "database"
 ARTIFACTS = {}
@@ -15,11 +20,12 @@ def health():
     return {"status": "ok"}
 
 @app.post("/upload")
-async def upload_model(file: UploadFile = File(...)):
+async def upload_model(file: UploadFile = File(...), s3_bucket: str | None = Query(None), s3_key: str | None = Query(None)):
     # Accept a .zip file, save to disk, store basic info in memory -> return a tiny JSON record.
+    # Optionally store S3 metadata if provided (bucket and key for artifact storage on S3).
     artifact_id = str(uuid.uuid4())
 
-    # Save zip bytes to storage/<id>.zip
+    # Save zip bytes to storage/<id>.zip (local fallback)
     data = await file.read()
     with open(f"storage/{artifact_id}.zip", "wb") as f:
         f.write(data)
@@ -29,6 +35,12 @@ async def upload_model(file: UploadFile = File(...)):
         "filename": file.filename,
         "net_score": None # to be implemented
     }
+    
+    # If S3 metadata is provided, store it in the artifact record
+    if s3_bucket and s3_key:
+        record["s3_bucket"] = s3_bucket
+        record["s3_key"] = s3_key
+    
     ARTIFACTS[artifact_id] = record
     return record
 

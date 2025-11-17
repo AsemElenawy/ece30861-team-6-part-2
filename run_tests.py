@@ -52,9 +52,8 @@ def main():
     sys.stderr = original_stderr
 
     # Print JSON summary
-    output = {f"{passed}/{total} test cases passed. {int(coverage_percent)}% line coverage achieved."
-    }
-    print(json.dumps(output))
+    output = f"{passed}/{total} test cases passed. {int(coverage_percent)}% line coverage achieved."
+    print(json.dumps({"summary": output}))
 
     # Exit code = 0 if all tests pass, nonzero otherwise
     return 0 if result.wasSuccessful() else 1
