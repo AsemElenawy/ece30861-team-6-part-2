@@ -217,7 +217,6 @@ def list_artifacts(
             }
         )
     return results
-
 @app.get(
     "/artifacts/{artifact_type}/{id}",
     response_model=Artifact,
@@ -244,7 +243,7 @@ async def get_artifact(
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
-    } 
+    }
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",
