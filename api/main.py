@@ -246,28 +246,55 @@ async def get_artifact(
         "metadata": stored["metadata"],
         "data": stored["data"],
     } '''
-@app.get("/artifacts/{artifact_type}/{id}", response_model=Artifact)
-async def get_artifact(artifact_type: str, id: str,
-                       x_authorization: str = Header(None, alias="X-Authorization")):
+from typing import Optional
+from fastapi import Header
 
-    # Must have header
-    if not x_authorization or x_authorization not in ACTIVE_TOKENS:
-        raise HTTPException(status_code=403, detail="Authentication failed")
+@app.get(
+    "/artifacts/{artifact_type}/{id}",
+    response_model=Artifact,
+    tags=["baseline"],
+)
+async def get_artifact(
+    artifact_type: str,
+    id: str,
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+):
+    """
+    Interact with the artifact with this id.
 
-    # Validate artifact_type
+    Status codes per spec:
+    - 200: artifact returned
+    - 400: malformed/invalid artifact_type
+    - 403: missing or invalid X-Authorization
+    - 404: artifact does not exist
+    """
+
+    # 1) artifact_type validation -> 400
     if artifact_type not in {"model", "dataset", "code"}:
         raise HTTPException(status_code=400, detail="Invalid artifact_type")
 
-    # Retrieve artifact
+    # 2) auth check -> 403 if missing or unknown
+    if not x_authorization or x_authorization not in ACTIVE_TOKENS:
+        raise HTTPException(
+            status_code=403,
+            detail="Authentication failed due to invalid or missing AuthenticationToken.",
+        )
+
+    # 3) lookup -> 404 if no such id
     stored = ARTIFACTS.get(id)
     if not stored:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # Type mismatch → autograder expects 404
+    # 4) type mismatch -> treat as "not found" for this type/id combo
     if stored["metadata"]["type"] != artifact_type:
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    return stored
+    # 5) success
+    return {
+        "metadata": stored["metadata"],
+        "data": stored["data"],
+    }
+
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",
@@ -495,30 +522,48 @@ async def authenticate(body: Dict[str, Any] = Body(...)):
     token = "bearer default-autograder-token"
     return token'''
 
-ACTIVE_TOKENS = set()
-@app.put("/authenticate")
-async def authenticate(body: dict = Body(...)):
-    user = body.get("user", {})
-    secret = body.get("secret", {})
+DEFAULT_USERNAME = "ece30861defaultadminuser"
+DEFAULT_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
 
-    if user.get("name") == DEFAULT_USERNAME and secret.get("password") == DEFAULT_PASSWORD:
-        token = "bearer-" + str(uuid.uuid4())   # any string is fine
-        ACTIVE_TOKENS.add(token)
-        return token   # MUST return a raw string
-    else:
+# store whatever tokens we've issued
+ACTIVE_TOKENS: set[str] = set()
+
+@app.put("/authenticate", response_model=str, tags=["non-baseline"])
+async def authenticate(body: Dict[str, Any] = Body(...)):
+    """
+    Create an access token.
+
+    Expected body (per spec):
+
+    {
+      "user": {
+        "name": "ece30861defaultadminuser",
+        "is_admin": true
+      },
+      "secret": {
+        "password": "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE artifacts;"
+      }
+    }
+    """
+
+    user = body.get("user") or {}
+    secret = body.get("secret") or {}
+
+    username = user.get("name")
+    password = secret.get("password")
+
+    # 1) malformed request -> 400
+    if username is None or password is None:
+        raise HTTPException(status_code=400, detail="Malformed authentication request")
+
+    # 2) wrong credentials -> 401
+    if username != DEFAULT_USERNAME or password != DEFAULT_PASSWORD:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-
-@app.get("/artifact/byName/{name}", tags=["non-baseline"])
-async def get_by_name(name: str):
-    target = name.lower()
-    results = []
-    for stored in ARTIFACTS.values():
-        stored_name = stored["metadata"]["name"]
-        if stored_name.lower() == target:
-            results.append(stored["metadata"])
-    return results
-
+    # 3) success -> generate ANY token string, autograder will reuse it
+    token = "bearer " + str(uuid.uuid4())
+    ACTIVE_TOKENS.add(token)
+    return token   # important: raw string, NOT {"token": ...}
 
 @app.get("/artifact/{artifact_type}/{id}/audit", tags=["non-baseline"])
 async def get_audit_log(artifact_type: str, id: str):
