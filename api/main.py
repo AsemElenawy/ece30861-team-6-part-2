@@ -240,6 +240,11 @@ def list_artifacts(
 
     return results
 
+BAD_REQUEST_MESSAGE = (
+    "There is missing field(s) in the artifact_type or artifact_id or it is "
+    "formed improperly, or is invalid."
+)
+
 '''
 @app.post("/artifacts", tags=["baseline"])
 def list_artifacts(
