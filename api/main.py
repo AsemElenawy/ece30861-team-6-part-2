@@ -240,6 +240,8 @@ def list_artifacts(
                 "type": meta["type"],
             }
         )
+    logger.info(f"[LIST ARTIFACTS] Query name='{q.name}', types={q.types}")
+    logger.info(f"checking stored name='{meta['name']}', type='{meta['type']}'")
     return results
 
 BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
