@@ -16,13 +16,25 @@ app = FastAPI(title="Model Registry")
 STORAGE_DIR = "/storage"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
+DEBUG_LOG = "/app/runtime.log"
 
-logging.basicConfig(
-    filename="/app/debug.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-logger = logging.getLogger("grader")
+import logging
+
+logger = logging.getLogger("registry")
+logger.setLevel(logging.INFO)
+
+fh = logging.FileHandler(DEBUG_LOG)
+fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+logger.addHandler(fh)
+
+@app.get("/debug/logs")
+def download_logs():
+    try:
+        with open(DEBUG_LOG, "r") as f:
+            return PlainTextResponse(f.read())
+    except Exception as e:
+        return PlainTextResponse("ERROR: " + str(e), status_code=500)
+
 
 # --------------------------------------------------------------------
 # Data models
@@ -240,28 +252,48 @@ async def get_artifact_by_id(
     id: str,
     x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
 ):
+    logger.info(f"[GET ARTIFACT] Incoming GET /artifacts/{artifact_type}/{id}")
+
     # 1) Validate artifact_type
     if artifact_type not in {"model", "dataset", "code"}:
+        logger.warning(
+            f"[GET ARTIFACT] Invalid artifact_type='{artifact_type}' → 400"
+        )
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
     # 2) Does artifact exist?
     stored = ARTIFACTS.get(id)
     if not stored:
+        logger.warning(
+            f"[GET ARTIFACT] Artifact ID '{id}' not found → 404"
+        )
         raise HTTPException(status_code=404, detail="Artifact does not exist.")
 
     # 3) Type mismatch → 400
     if stored["metadata"]["type"] != artifact_type:
+        logger.warning(
+            f"[GET ARTIFACT] Type mismatch: requested='{artifact_type}', "
+            f"stored='{stored['metadata']['type']}' → 400"
+        )
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
     # 4) URL missing → 400
     if "url" not in stored["data"] or not stored["data"]["url"]:
+        logger.error(
+            f"[GET ARTIFACT] Artifact '{id}' missing URL field → 400"
+        )
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
 
     # 5) OK
+    logger.info(
+        f"[GET ARTIFACT] SUCCESS id={id}, name={stored['metadata']['name']}, type={artifact_type} → 200"
+    )
+
     return {
         "metadata": stored["metadata"],
         "data": stored["data"],
     }
+
 
 
 @app.put(
