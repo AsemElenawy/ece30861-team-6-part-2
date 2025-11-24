@@ -220,6 +220,52 @@ def list_artifacts(
         )
     return results
 
+@app.get(
+    "/artifacts/{artifact_type}/{id}",
+    response_model=Artifact,
+    tags=["baseline"],
+)
+async def get_artifact_by_id(
+    artifact_type: str,
+    id: str,
+    x_authorization: Optional[str] = Header(None, alias="X-Authorization"),
+):
+    """
+    GET /artifacts/{artifact_type}/{id}
+
+    Baseline behavior:
+
+    - 200: return the full Artifact (metadata + data) for a valid id+type
+    - 400: artifact_type doesn't match stored type
+    - 404: artifact with that id does not exist
+
+    For now we *ignore* X-Authorization to keep baseline simple.
+    """
+
+    # 1) Check that artifact exists
+    stored = ARTIFACTS.get(id)
+    if not stored:
+        # ID is syntactically fine but not in the registry
+        raise HTTPException(status_code=404, detail="Artifact does not exist.")
+
+    # 2) Check that the type in the URL matches what we actually stored
+    stored_type = stored["metadata"]["type"]
+    if stored_type != artifact_type:
+        raise HTTPException(status_code=400, detail="Artifact type mismatch.")
+
+    # 3) Ensure we have a URL in data (spec says url is required)
+    data = stored.get("data") or {}
+    if "url" not in data or not data["url"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Artifact data missing required 'url' field."
+        )
+
+    # 4) Return the artifact in the expected shape
+    return {
+        "metadata": stored["metadata"],
+        "data": stored["data"],
+    }
 
 @app.put(
     "/artifacts/{artifact_type}/{id}",
