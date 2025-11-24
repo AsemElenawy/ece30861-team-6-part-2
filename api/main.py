@@ -623,13 +623,22 @@ async def get_audit_log(artifact_type: str, id: str):
 
 @app.get("/artifact/byName/{name}")
 def get_artifact_by_name(name: str):
+    logger.info(f"[BYNAME] Incoming GET /artifact/byName/{name}")
+    logger.info(f"[BYNAME] ARTIFACTS currently stored: {list(ARTIFACTS.keys())}")
+
     results = []
-    for stored in ARTIFACTS.values():
+    for stored_id, stored in ARTIFACTS.items():
         meta = stored["metadata"]
+        logger.info(f"[BYNAME] Checking artifact id={stored_id}, name={meta['name']}")
+
         if meta["name"] == name:
+            logger.info(f"[BYNAME] MATCH: {meta}")
             results.append({
                 "name": meta["name"],
                 "id": meta["id"],
                 "type": meta["type"]
             })
+
+    logger.info(f"[BYNAME] Returning results: {results}")
     return results
+
