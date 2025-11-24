@@ -620,3 +620,16 @@ async def get_audit_log(artifact_type: str, id: str):
             {"event": "created", "by": "system", "timestamp": "2025-01-01T00:00:00Z"}
         ],
     }
+
+@app.get("/artifact/byName/{name}")
+def get_artifact_by_name(name: str):
+    results = []
+    for stored in ARTIFACTS.values():
+        meta = stored["metadata"]
+        if meta["name"] == name:
+            results.append({
+                "name": meta["name"],
+                "id": meta["id"],
+                "type": meta["type"]
+            })
+    return results
