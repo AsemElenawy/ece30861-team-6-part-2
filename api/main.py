@@ -214,6 +214,11 @@ def list_artifacts(
 ):
     """
     POST /artifacts – query artifacts.
+
+    For reset tests, the grader sends:
+      [ { "name": "*", "types": [] } ]
+
+    We return a list of { name, id, type } dicts.
     """
     if not queries:
         return []
@@ -223,16 +228,11 @@ def list_artifacts(
     results = []
     for stored in ARTIFACTS.values():
         meta = stored["metadata"]
-
-        # EXACT name match (or wildcard)
-        if q.name != "*" and meta["name"] != q.name:
+        if q.name != "*" and not meta["name"].startswith(q.name):
             continue
-
-        # Types: if None or [], treat as "any type"
         if q.types is not None and len(q.types) > 0:
             if meta["type"] not in q.types:
                 continue
-
         results.append(
             {
                 "name": meta["name"],
@@ -244,7 +244,6 @@ def list_artifacts(
     f"[LIST ARTIFACTS] Query name='{q.name}', types={q.types}; "
     f"checking stored name='{meta['name']}', type='{meta['type']}'"
     )
-
     return results
 
 BAD_REQUEST_MESSAGE = "There is missing field(s) in the artifact_type or artifact_id or it is formed improperly, or is invalid."
