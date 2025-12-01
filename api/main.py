@@ -205,7 +205,6 @@ async def create_artifact(
 # --------------------------------------------------------------------
 # Artifact query + read/update/delete
 # --------------------------------------------------------------------
-
 @app.post("/artifacts", tags=["baseline"])
 def list_artifacts(
     queries: List[ArtifactQuery],
@@ -217,7 +216,10 @@ def list_artifacts(
       Body: [ { "name": "<name-or-*>", "types": [ ... ] } ]
 
       - name == "*" → no name filter (wildcard)
-      - else        → exact name match
+      - else        → name match is:
+          * case-insensitive
+          * matches repo if query is "owner-repo"
+          * ignores trailing ".git" in stored name
 
       - types missing or [] → no type filter
       - else                → artifact.type must be in types
@@ -227,7 +229,6 @@ def list_artifacts(
     """
     logger.info(f"[LIST ARTIFACTS] queries={queries}")
 
-    # Be lenient: if no queries, just return empty list instead of 400.
     if not queries:
         logger.warning("[LIST ARTIFACTS] empty queries → []")
         return []
@@ -235,6 +236,22 @@ def list_artifacts(
     q = queries[0]
     name_query = q.name
     types_query = q.types
+
+    def normalize_name(s: str) -> str:
+        return s.strip().lower()
+
+    def strip_git(s: str) -> str:
+        s = s.strip()
+        return s[:-4] if s.lower().endswith(".git") else s
+
+    # Normalized query forms
+    q_raw = name_query
+    q_norm = normalize_name(name_query)
+
+    # If the query has an "owner-repo" form, take the part after the first "-"
+    q_suffix_norm = None
+    if name_query != "*" and "-" in name_query:
+        q_suffix_norm = normalize_name(name_query.split("-", 1)[1])
 
     results = []
 
@@ -244,11 +261,27 @@ def list_artifacts(
         art_type = meta["type"]
         art_id = meta["id"]
 
-        # Name filter
-        if name_query != "*" and art_name != name_query:
-            continue
+        # ---------- NAME FILTER ----------
+        if name_query != "*":
+            stored_norm = normalize_name(art_name)
+            stored_no_git_norm = normalize_name(strip_git(art_name))
 
-        # Type filter
+            match = False
+
+            # 1) Exact (case-insensitive) match
+            if stored_norm == q_norm or stored_no_git_norm == q_norm:
+                match = True
+
+            # 2) If query is "owner-repo", also try matching just "repo"
+            if not match and q_suffix_norm is not None:
+                if stored_norm == q_suffix_norm or stored_no_git_norm == q_suffix_norm:
+                    match = True
+
+            if not match:
+                # This artifact does not match the name query
+                continue
+
+        # ---------- TYPE FILTER ----------
         if types_query is not None and len(types_query) > 0:
             if art_type not in types_query:
                 continue
@@ -339,6 +372,7 @@ async def get_artifact_by_id(
         raise HTTPException(status_code=400, detail=BAD_REQUEST_MESSAGE)
     
     logger.info(f"[GET ARTIFACT] SUCCESS id={id}, name={stored['metadata']['name']}, type={artifact_type} → 200")
+
     return stored
 
 '''
