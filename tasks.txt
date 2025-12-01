@@ -7,4 +7,6 @@ dataset_quality(dataset_name, verbosity, log_queue) 2
 rampup_time_metric(filename, verbosity, log_queue) 3
 performance_claims_metric(filename, verbosity, log_queue) 2
 reproducibility_metric(filename, verbosity, log_queue) 3
+reviewedness_metric(github_str, verbosity, log_queue) 2
+treescore_metric(filename, verbosity, log_queue) 2
 evaluate_readme_metrics(filename, verbosity, log_queue) 2
