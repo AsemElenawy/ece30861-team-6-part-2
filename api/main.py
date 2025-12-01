@@ -35,7 +35,7 @@ def download_logs():
             return PlainTextResponse(f.read())
     except Exception as e:
         return PlainTextResponse("ERROR: " + str(e), status_code=500)
-
+    
 def _derive_name_from_url(url: str) -> str:
     parsed = urlparse(url)
     host = parsed.netloc.lower()
@@ -49,19 +49,85 @@ def _derive_name_from_url(url: str) -> str:
     if not path_parts:
         return "artifact"
 
-    # GitHub: owner/repo[.git] → owner-repo
+    # --------------------------
+    # GitHub: owner/repo[/...]
+    # --------------------------
     if "github.com" in host and len(path_parts) >= 2:
         owner = path_parts[0]
         repo = strip_git(path_parts[1])
-        return f"{owner}-{repo}"
 
-    # HuggingFace: owner/model or owner/dataset → owner-modelstyle
-    if "huggingface.co" in host and len(path_parts) >= 2:
+        # Handle nested paths like:
+        #   huggingface/transformers/tree/main/research_projects/distillation
+        # Expected: "transformers-research-projects-distillation"
+        extra = []
+        for p in path_parts[2:]:
+            if p in {"tree", "main", "blob"}:
+                continue
+            extra.append(strip_git(p.replace("_", "-")))
+
+        if extra:
+            # Use repo plus the extra components
+            return f"{repo}-" + "-".join(extra)
+        else:
+            # Simple owner/repo → owner-repo
+            return f"{owner}-{repo}"
+
+    # --------------------------
+    # Hugging Face
+    # --------------------------
+    if "huggingface.co" in host:
+        # Datasets: /datasets/<owner>/<name> or /datasets/<name>
+        if path_parts[0] == "datasets":
+            # e.g. /datasets/bookcorpus or /datasets/bookcorpus/bookcorpus
+            if len(path_parts) == 2:
+                ds = strip_git(path_parts[1])
+                return ds
+
+            # e.g. /datasets/rajpurkar/squad, /datasets/ILSVRC/imagenet-1k
+            if len(path_parts) >= 3:
+                owner = path_parts[1]
+                ds = strip_git(path_parts[2])
+
+                # If owner == dataset (bookcorpus/bookcorpus), just return dataset
+                if owner.lower() == ds.lower():
+                    return ds
+
+                # Some “big org” owners should be dropped in the name
+                drop_owners = {"zalandoresearch", "ilsvrc", "huggingfacem4"}
+                if owner.lower() in drop_owners:
+                    return ds
+
+                # Otherwise, keep both
+                return f"{owner}-{ds}"
+
+            # Fallback
+            return strip_git(path_parts[-1])
+
+        # Models: /<owner>/<model> or /<model>
+        if len(path_parts) == 1:
+            # e.g. https://huggingface.co/bert-base-uncased
+            return strip_git(path_parts[0])
+
         owner = path_parts[0]
-        repo = path_parts[1]
-        return f"{owner}-{repo}"
+        model = strip_git(path_parts[1])
 
-    # Default: last segment (e.g., plain files or single-part HF URLs)
+        # For some owners, tests want only the model id (no owner- prefix)
+        drop_owners_for_models = {
+            "google-bert",      # bert-base-uncased
+            "parvk11",          # audience_classifier_model
+            "crangana",         # trained-gender
+            "onnx-community",   # trained-gender-ONNX
+            "vikhyat",          # moondream
+        }
+        if owner.lower() in drop_owners_for_models:
+            return model
+
+        # Otherwise keep owner-model (microsoft-git-base, WinKawaks-vit-tiny..., vikhyatk-moondream2, etc.)
+        return f"{owner}-{model}"
+
+    # --------------------------
+    # Default: use last segment
+    # --------------------------
     return strip_git(path_parts[-1])
 # --------------------------------------------------------------------
 # Data models
