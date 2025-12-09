@@ -3,6 +3,8 @@
 from fastapi import FastAPI, UploadFile, File, Header, HTTPException, Body,Request
 from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from urllib.parse import urlparse
 import time
 from typing import List, Dict, Optional, Any
