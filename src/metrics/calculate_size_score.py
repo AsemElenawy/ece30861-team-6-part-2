@@ -16,6 +16,20 @@ def calculate_size_score(model_size_bytes: int, verbosity: int, log_queue) -> Tu
         if verbosity >= 1: # Informational
             log_queue.put(f"[{pid}] [INFO] Starting size score calculation for model of {model_size_bytes} bytes...")
 
+        # Handle edge cases: None, 0, or negative sizes
+        if model_size_bytes is None or model_size_bytes <= 0:
+            if verbosity >= 1:
+                log_queue.put(f"[{pid}] [WARNING] Invalid model size ({model_size_bytes}), using default minimal scores")
+            # Assume it's a very small model if size is unknown
+            scores = {
+                "raspberry_pi": 0.5,
+                "jetson_nano": 0.5,
+                "desktop_pc": 1.0,
+                "aws_server": 1.0
+            }
+            time_taken = time.perf_counter() - start_time
+            return scores, time_taken
+
         size_gb = model_size_bytes / (1024 * 1024 * 1024)
         
         if verbosity >= 1: # Informational

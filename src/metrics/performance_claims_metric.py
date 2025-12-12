@@ -29,7 +29,15 @@ def performance_claims_metric(filename: str, verbosity: int, log_queue) -> Tuple
     start_time = time.time()
     pid = os.getpid() # Get process ID for clear log messages
 
-    instruction = "Given the following readme, give a number from 0 to 1.0, with 1 being the best, on the performance claims of this model. Take into account things like verifiable claims and evidence provided within the readme to make the score. ONLY PROVIDE A SINGLE NUMBER, NO OTHER TEXT SHOULD BE IN THE RESPONSE. IT SHOULD BE DIRECTLY CONVERTABLE TO A FLOAT:\n\n"
+    instruction = """Evaluate the performance claims in this model's README and provide a score from 0 to 1.0:
+- 1.0 = Explicit performance metrics with numbers (accuracy, F1, benchmarks, speed, etc.)
+- 0.5-0.9 = General performance descriptions or comparisons ("better than", "faster", "improved")
+- 0.1-0.4 = Mentions use cases or capabilities without specific metrics
+- 0.0 = No performance information at all
+
+Look for: accuracy scores, benchmark results, speed measurements, comparisons to other models, dataset performance, use case descriptions.
+
+ONLY RESPOND WITH A SINGLE NUMBER (e.g., 0.75). NO OTHER TEXT.\n\n"""
 
     score = 0.0  # Default to 0.0 for failure cases
     llm_response_str = None
