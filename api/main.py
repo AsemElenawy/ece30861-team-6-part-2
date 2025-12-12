@@ -794,8 +794,8 @@ async def get_model_rate(
                 output = json.loads(result.stdout.strip())
                 logger.info(f"[RATE] Successfully parsed metrics output")
 
-                logger.info(f"[RATE] top-level keys: {list(output.keys())}")
-                logger.info(f"[RATE] output preview: {str(output)[:400]}")
+                logger.warning(f"[RATE] top-level keys: {list(output.keys())}")
+                logger.warning(f"[RATE] output preview: {str(output)[:400]}")
 
                 
                 # Map the output format to the expected API response format
