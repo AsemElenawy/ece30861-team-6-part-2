@@ -32,23 +32,40 @@ def dataset_and_code_present(filename: str, verbosity: int, log_queue) -> Tuple[
             "huggingface.co/datasets",
             "kaggle.com/datasets",
             "roboflow.com",
-            "drive.google.com"
+            "drive.google.com",
+            "github.com/datasets"
         ]
         dataset_keywords = [
             "dataset",
             "datasets",
             "data set",
             "training data",
-            "download data"
+            "download data",
+            "training set",
+            "test set",
+            "validation set",
+            "benchmark",
+            "imagenet",
+            "coco",
+            "mnist",
+            "cifar",
+            "squad",
+            "glue",
+            "trained on",
+            "fine-tuned on",
+            "finetuned on"
         ]
 
-        has_dataset = any(host in readme_text for host in dataset_hosts) or \
-                      any(kw in readme_text for kw in dataset_keywords)
+        has_dataset_host = any(host in readme_text for host in dataset_hosts)
+        has_dataset_keyword = any(kw in readme_text for kw in dataset_keywords)
+        
+        # Count how many keyword matches we have for confidence
+        keyword_count = sum(1 for kw in dataset_keywords if kw in readme_text)
         
         if verbosity >= 1 and log_queue:
-            log_queue.put(f"[{pid}] [INFO] Dataset mention found in README: {has_dataset}")
+            log_queue.put(f"[{pid}] [INFO] Dataset host found: {has_dataset_host}, Keywords found: {keyword_count}")
         
-        if verbosity >= 2 and has_dataset and log_queue:
+        if verbosity >= 2 and log_queue:
             found_hosts = [host for host in dataset_hosts if host in readme_text]
             found_kws = [kw for kw in dataset_keywords if kw in readme_text]
             if found_hosts:
@@ -57,8 +74,12 @@ def dataset_and_code_present(filename: str, verbosity: int, log_queue) -> Tuple[
                 log_queue.put(f"[{pid}] [DEBUG] Found dataset keywords: {', '.join(found_kws)}")
 
         # Score based on results
-        if has_dataset:
+        if has_dataset_host or keyword_count >= 3:
+            # High confidence - explicit dataset link or multiple mentions
             score = 1.0
+        elif has_dataset_keyword and keyword_count >= 1:
+            # Medium confidence - at least one keyword mention
+            score = 0.5
         else:
             score = 0.0
 
