@@ -14,6 +14,8 @@ import shutil
 import re
 import logging
 
+
+
 app = FastAPI(title="Model Registry")
 
 STORAGE_DIR = "/storage"
@@ -713,6 +715,8 @@ async def get_model_rate(
     import subprocess
     import json
     import tempfile
+    import sys
+    cmd = [sys.executable, "/app/run.py", temp_file]
 
     stored = ARTIFACTS.get(id)
     if not stored or stored["metadata"].get("type") != "model":
@@ -736,7 +740,8 @@ async def get_model_rate(
     try:
         # Run the Phase 1 metrics using run.py
         result = subprocess.run(
-            ['python', '/app/run.py', temp_file],
+            [sys.executable, "/app/run.py", temp_file],
+            #['python', '/app/run.py', temp_file],
             capture_output=True,
             text=True,
             timeout=120,  # 2 minute timeout
