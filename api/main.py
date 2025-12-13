@@ -1000,7 +1000,7 @@ async def get_audit_log(artifact_type: str, id: str):
         ],
     }
 # -------------------------
-# CONSTANTS
+# CONSTANTS fix
 # --------------------------
 
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
