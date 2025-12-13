@@ -393,10 +393,17 @@ async def artifact_by_regex(
 
         # 2) Match against any string field in data (URL, README, etc.)
         if not matched and isinstance(data, dict):
-            for v in data.values():
-                if isinstance(v, str) and regex.search(v):
-                    matched = True
-                    break
+            possible_values = list(data.values())
+            while possible_values and not matched:
+                v = possible_values.pop()
+                if isinstance(v, str):
+                    if regex.search(v):
+                        matched = True
+                        break
+                elif isinstance(v, dict):
+                    possible_values.extend(v.values())
+                elif isinstance(v, list):
+                    possible_values.extend(v)
 
         if matched:
             logger.info(f"[BYREGEX] MATCH name={name!r}")
