@@ -1087,8 +1087,6 @@ import logging
 from typing import Optional
 from fastapi import Header, HTTPException
 
-logger = logging.getLogger("lineage")
-logging.basicConfig(level=logging.INFO)
 
 @app.get("/artifact/model/{id}/lineage", tags=["baseline"])
 async def get_model_lineage(
