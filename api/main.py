@@ -891,7 +891,7 @@ async def get_audit_log(artifact_type: str, id: str):
     }
 # -------------------------
 # CONSTANTS
-# -------------------------
+# --------------------------
 
 DEFAULT_ADMIN_NAME = "ece30861defaultadminuser"
 DEFAULT_ADMIN_PASSWORD = "correcthorsebatterystaple123(!__+@**(A'\"`;DROP TABLE packages;"
