@@ -1114,10 +1114,21 @@ async def get_model_lineage(
 
     edges = []
 
-    # BASELINE: include all other artifacts as lineage nodes (safe for "all nodes present")
+    # Include relevant "parent" artifacts and label relationships by type
     for other_id, other_art in ARTIFACTS.items():
         if other_id == id:
             continue
+
+        other_type = other_art["metadata"].get("type", "")
+
+        if other_type == "model":
+            rel = "base_model"
+        elif other_type == "dataset":
+            rel = "trained_on"
+        elif other_type == "code":
+            rel = "uses_code"
+        else:
+            continue  # skip unknown types
 
         nodes.append({
             "artifact_id": num_id(other_id),
@@ -1125,11 +1136,11 @@ async def get_model_lineage(
             "source": "config_json",
         })
 
-        # relationship label from your example
+        # parent -> model (matches example: base_model points to derived model)
         edges.append({
             "from_node_artifact_id": num_id(other_id),
             "to_node_artifact_id": num_id(id),
-            "relationship": "base_model",
+            "relationship": rel,
         })
 
     return {"nodes": nodes, "edges": edges}
