@@ -738,8 +738,11 @@ async def get_model_rate(
     if not model_url:
         raise HTTPException(status_code=500, detail="Model URL not found")
 
-    # Create a temporary file with the model URL in the correct format
+    temp_file = None
+    result = None
+
     try:
+        # Create a temporary file with the model URL in the correct format
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='ascii') as f:
             f.write(f",,{model_url}\n")
             temp_file = f.name
@@ -748,7 +751,7 @@ async def get_model_rate(
 
         # Run run.py with the temp file
         result = subprocess.run(
-            ["python", "run.py", temp_file],
+            ["python", "/app/run.py", temp_file],
             capture_output=True,
             text=True,
             timeout=60,  # Increased timeout to 60 seconds
@@ -757,67 +760,12 @@ async def get_model_rate(
 
         logger.info(f"[RATE] run.py exit code: {result.returncode}")
 
-        # Clean up temp file
-        try:
-            os.unlink(temp_file)
-        except:
-            pass
-
-        # Parse the output
-        if result.returncode == 0 and result.stdout:
-            try:
-                output = json.loads(result.stdout.strip())
-                logger.info(f"[RATE] Successfully parsed metrics output")
-                return output
-            except json.JSONDecodeError as e:
-                logger.error(f"[RATE] JSON parse error: {e}")
-                # Return placeholder on parse error
-                pass
-        else:
-            logger.error(f"[RATE] run.py failed or no output")
-            if result.stderr:
-                logger.error(f"[RATE] stderr: {result.stderr[:500]}")
-
-        # Return placeholder on error
-        return {
-            "name": meta["name"],
-            "category": "MODEL",
-            "net_score": 0.5,
-            "net_score_latency": 0.01,
-            "ramp_up_time": 0.5,
-            "ramp_up_time_latency": 0.01,
-            "bus_factor": 0.5,
-            "bus_factor_latency": 0.01,
-            "performance_claims": 0.5,
-            "performance_claims_latency": 0.01,
-            "license": 0.5,
-            "license_latency": 0.01,
-            "dataset_and_code_score": 0.5,
-            "dataset_and_code_score_latency": 0.01,
-            "dataset_quality": 0.5,
-            "dataset_quality_latency": 0.01,
-            "code_quality": 0.5,
-            "code_quality_latency": 0.01,
-            "reproducibility": 0.5,
-            "reproducibility_latency": 0.01,
-            "reviewedness": 0.5,
-            "reviewedness_latency": 0.01,
-            "tree_score": 0.5,
-            "tree_score_latency": 0.01,
-            "size_score": {
-                "raspberry_pi": 0.5,
-                "jetson_nano": 0.5,
-                "desktop_pc": 0.5,
-                "aws_server": 0.5,
-            },
-            "size_score_latency": 0.01,
-        }
     except subprocess.TimeoutExpired:
         logger.error(f"[RATE] Timeout running metrics for model {id}")
         # Return placeholder on timeout
         return {
             "name": meta["name"],
-            "category": "MODEL",
+            "category": "model",
             "net_score": 0.5,
             "net_score_latency": 0.01,
             "ramp_up_time": 0.5,
@@ -848,12 +796,13 @@ async def get_model_rate(
             },
             "size_score_latency": 0.01,
         }
+    
     except Exception as e:
         logger.error(f"[RATE] Exception running metrics: {e}")
         # Return placeholder on any exception
         return {
             "name": meta["name"],
-            "category": "MODEL",
+            "category": "model",
             "net_score": 0.5,
             "net_score_latency": 0.01,
             "ramp_up_time": 0.5,
@@ -884,6 +833,104 @@ async def get_model_rate(
             },
             "size_score_latency": 0.01,
         }
+    
+    finally:
+        # Clean up temp file
+        if temp_file:
+            try:
+                os.unlink(temp_file)
+            except:
+                pass
+
+    # Parse the output
+    if result and result.returncode == 0 and result.stdout:
+        try:
+            output = json.loads(result.stdout.strip())
+            logger.info(f"[RATE] Successfully parsed metrics output")
+
+            response = {
+                "name": meta["name"],
+                "category": "model",  # keep lowercase
+                "net_score": output.get("net_score", 0.0),
+                "net_score_latency": output.get("net_score_latency", 0.0),
+                "ramp_up_time": output.get("ramp_up_time", 0.0),
+                "ramp_up_time_latency": output.get("ramp_up_time_latency", 0.0),
+                "bus_factor": output.get("bus_factor", 0.0),
+                "bus_factor_latency": output.get("bus_factor_latency", 0.0),
+                "performance_claims": output.get("performance_claims", 0.0),
+                "performance_claims_latency": output.get("performance_claims_latency", 0.0),
+                "license": output.get("license", 0.0),
+                "license_latency": output.get("license_latency", 0.0),
+                "dataset_and_code_score": output.get("dataset_and_code_score", 0.0),
+                "dataset_and_code_score_latency": output.get("dataset_and_code_score_latency", 0.0),
+                "dataset_quality": output.get("dataset_quality", 0.0),
+                "dataset_quality_latency": output.get("dataset_quality_latency", 0.0),
+                "code_quality": output.get("code_quality", 0.0),
+                "code_quality_latency": output.get("code_quality_latency", 0.0),
+                "reproducibility": output.get("reproducibility", 0.0),
+                "reproducibility_latency": output.get("reproducibility_latency", 0.0),
+                "reviewedness": output.get("reviewedness", 0.0),
+                "reviewedness_latency": output.get("reviewedness_latency", 0.0),
+
+                # support BOTH key spellings defensively
+                "tree_score": output.get("tree_score", output.get("treescore", 0.0)),
+                "tree_score_latency": output.get("tree_score_latency", output.get("treescore_latency", 0.0)),
+
+                "size_score": output.get("size_score", {
+                    "raspberry_pi": 0.0,
+                    "jetson_nano": 0.0,
+                    "desktop_pc": 0.0,
+                    "aws_server": 0.0,
+                }),
+                "size_score_latency": output.get("size_score_latency", 0.0),
+            }
+
+            return response
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"[RATE] JSON parse error: {e}")
+        except Exception as e:
+            logger.error(f"[RATE] Unexpected parse/mapping error: {e}")
+                         
+    if result and result.stderr:
+        logger.error(f"[RATE] run.py failed or no output. stderr: {result.stderr[:500]}")
+    else:
+        logger.error(f"[RATE] run.py failed or no output.")
+
+    # Return placeholder on error
+    return {
+        "name": meta["name"],
+        "category": "model",
+        "net_score": 0.5,
+        "net_score_latency": 0.01,
+        "ramp_up_time": 0.5,
+        "ramp_up_time_latency": 0.01,
+        "bus_factor": 0.5,
+        "bus_factor_latency": 0.01,
+        "performance_claims": 0.5,
+        "performance_claims_latency": 0.01,
+        "license": 0.5,
+        "license_latency": 0.01,
+        "dataset_and_code_score": 0.5,
+        "dataset_and_code_score_latency": 0.01,
+        "dataset_quality": 0.5,
+        "dataset_quality_latency": 0.01,
+        "code_quality": 0.5,
+        "code_quality_latency": 0.01,
+        "reproducibility": 0.5,
+        "reproducibility_latency": 0.01,
+        "reviewedness": 0.5,
+        "reviewedness_latency": 0.01,
+        "tree_score": 0.5,
+        "tree_score_latency": 0.01,
+        "size_score": {
+            "raspberry_pi": 0.5,
+            "jetson_nano": 0.5,
+            "desktop_pc": 0.5,
+            "aws_server": 0.5,
+        },
+        "size_score_latency": 0.01,
+    }
 
 
 from typing import Optional
