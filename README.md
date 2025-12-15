@@ -25,18 +25,15 @@ Baseline features (compliant with the OpenAPI schema) include:
 
 ### Extended functionality - Security Track
 Extended features (approved upon renegotiation) include:
-- `User authentication`
-Users authenticate with a username and password to obtain an access token.
+- `User authentication`: Users authenticate with a username and password to obtain an access token.
 Tokens are to expire after a fixed duration or usage limit.
 
-- `Role-based access control`
-The system defines multiple permission levels.
-Administrative users can manage user accounts.
-Non-admin users have restricted permissions.
+- `Role-based access control`: The system defines multiple permission levels. Administrative users can
+manage user accounts. Non-admin users have restricted permissions.
 
-- `Sensitive model handling`
+- `Sensitive model handling`:
 
-- `Sensitive model download history`
+- `Sensitive model download history`:
 
 ## Architecture
 - **Frontend:** Web-based UI
